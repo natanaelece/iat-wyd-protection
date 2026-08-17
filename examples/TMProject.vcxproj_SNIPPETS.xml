@@ -1,0 +1,10 @@
+<!-- Adicione no ItemGroup de headers: -->
+<ClInclude Include="P1IatAudit.h" />
+
+<!-- Adicione no ItemGroup de fontes: -->
+<ClCompile Include="P1IatAudit.cpp" />
+
+<!-- Exemplo opcional para gerar WYD.exe no target Win32: -->
+<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+  <TargetName>WYD</TargetName>
+</PropertyGroup>

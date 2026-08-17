@@ -1,0 +1,9 @@
+<!-- Opcional: apenas organização no Solution Explorer. -->
+
+<ClInclude Include="P1IatAudit.h">
+  <Filter>Header Files</Filter>
+</ClInclude>
+
+<ClCompile Include="P1IatAudit.cpp">
+  <Filter>Source Files</Filter>
+</ClCompile>

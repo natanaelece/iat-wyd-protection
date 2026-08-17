@@ -1,0 +1,151 @@
+name: Validate public package
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Validate repository package
+        shell: python
+        run: |
+          from pathlib import Path
+          import struct
+          import xml.etree.ElementTree as ET
+
+          root = Path('.')
+
+          required = [
+              'LICENSE',
+              'README.md',
+              'SHA256SUMS',
+              'src/P1IatAudit.h',
+              'src/P1IatAudit.cpp',
+              'docs/IMPLEMENTATION.md',
+              'docs/TESTING.md',
+              'docs/images/integrity-blocked-login.png',
+              'examples/TMSelectServerScene_GATE_SNIPPET.cpp',
+              'examples/TMProject.vcxproj_SNIPPETS.xml',
+              'examples/TMProject.vcxproj.filters_SNIPPETS.xml',
+          ]
+          missing = [p for p in required if not (root / p).is_file()]
+          if missing:
+              raise SystemExit('MISSING_REQUIRED_FILES=' + ','.join(missing))
+
+          blocked_suffixes = {
+              '.exe', '.dll', '.sys', '.msi', '.pdb', '.obj', '.lib',
+              '.zip', '.7z', '.rar', '.bin', '.dmp', '.pcap', '.pcapng'
+          }
+          blocked = [
+              str(p) for p in root.rglob('*')
+              if p.is_file() and p.suffix.lower() in blocked_suffixes
+          ]
+          if blocked:
+              raise SystemExit('BLOCKED_BINARY_ARTIFACTS=' + ','.join(blocked))
+
+          temporary_names = []
+          for p in root.rglob('*'):
+              if not p.is_file():
+                  continue
+              lowered = p.name.lower()
+              if lowered.endswith(('.tmp', '.bak', '.orig')) or 'placeholder' in lowered:
+                  temporary_names.append(str(p))
+          if temporary_names:
+              raise SystemExit('TEMPORARY_OR_PLACEHOLDER_FILES=' + ','.join(temporary_names))
+
+          header = (root / 'src/P1IatAudit.h').read_text(encoding='utf-8')
+          cpp = (root / 'src/P1IatAudit.cpp').read_text(encoding='utf-8')
+          gate = (root / 'examples/TMSelectServerScene_GATE_SNIPPET.cpp').read_text(encoding='utf-8')
+          implementation = (root / 'docs/IMPLEMENTATION.md').read_text(encoding='utf-8')
+          testing = (root / 'docs/TESTING.md').read_text(encoding='utf-8')
+          readme = (root / 'README.md').read_text(encoding='utf-8')
+          sums = (root / 'SHA256SUMS').read_text(encoding='utf-8')
+
+          for marker in (
+              'enum class Result', 'Clean', 'Anomaly', 'ResolutionError',
+              'AuditRecordCount = 2', 'AuditCurrentProcess'
+          ):
+              if marker not in header:
+                  raise SystemExit('HEADER_CONTRACT_MISSING=' + marker)
+
+          for marker in (
+              'GetAdaptersInfo', 'connect', 'IPHLPAPI.DLL', 'WSOCK32.dll',
+              'WS2_32.dll', 'GetProcAddress', 'VirtualQuery',
+              'UnauthorizedIatTarget', 'LegitimateForwarder',
+              'static_assert(sizeof(void*) == sizeof(DWORD)'
+          ):
+              if marker not in cpp:
+                  raise SystemExit('CPP_CONTRACT_MISSING=' + marker)
+
+          for marker in (
+              'P1IatAudit::AuditCurrentProcess',
+              'auditCount == P1IatAudit::AuditRecordCount',
+              'record.result != P1IatAudit::Result::Clean',
+              'if (!clientIntegrityAllowed)',
+              'Falha na verificacao de integridade do cliente.',
+              'return 1;'
+          ):
+              if marker not in gate:
+                  raise SystemExit('GATE_CONTRACT_MISSING=' + marker)
+
+          if gate.find('P1IatAudit::AuditCurrentProcess') > gate.find('if (!clientIntegrityAllowed)'):
+              raise SystemExit('GATE_ORDER_INVALID=AUDIT_AFTER_DECISION')
+
+          for marker in ('B_LOGIN_OK', 'ConnectServer', 'P1IatAudit.h'):
+              if marker not in implementation:
+                  raise SystemExit('IMPLEMENTATION_GUIDE_MISSING=' + marker)
+
+          for marker in ('CLEAN', 'ANOMALY', 'ALLOW', 'BLOCK', 'GetAdaptersInfo', 'connect'):
+              if marker not in testing:
+                  raise SystemExit('TEST_GUIDE_MISSING=' + marker)
+
+          for link in (
+              'docs/IMPLEMENTATION.md',
+              'docs/TESTING.md',
+              'docs/images/integrity-blocked-login.png'
+          ):
+              if link not in readme or not (root / link).exists():
+                  raise SystemExit('README_LINK_INVALID=' + link)
+
+          for xml_path in (
+              'examples/TMProject.vcxproj_SNIPPETS.xml',
+              'examples/TMProject.vcxproj.filters_SNIPPETS.xml'
+          ):
+              text = (root / xml_path).read_text(encoding='utf-8')
+              ET.fromstring('<Root>\n' + text + '\n</Root>')
+
+          image = (root / 'docs/images/integrity-blocked-login.png').read_bytes()
+          png_magic = b'\x89PNG\r\n\x1a\n'
+          if len(image) < 24 or image[:8] != png_magic or image[12:16] != b'IHDR':
+              raise SystemExit('BLOCKED_LOGIN_IMAGE_INVALID_PNG')
+          width, height = struct.unpack('>II', image[16:24])
+          if (width, height) != (680, 125):
+              raise SystemExit(f'BLOCKED_LOGIN_IMAGE_DIMENSIONS={(width, height)}')
+
+          expected_package = (
+              '04dcdb2f43360f81a778017baac6b349ca89619d3992fe70f706bafee390640bb'
+              '  TMProject2Global-IAT-Integration-Package.zip'
+          )
+          if expected_package.lower() not in sums.lower():
+              raise SystemExit('SHA256SUMS_RELEASE_ASSET_MISSING_OR_WRONG')
+
+          print('PUBLIC_PACKAGE_VALIDATION=PASS')
+          print('PROTECTED_APIS=GetAdaptersInfo,connect')
+          print('BLOCKED_LOGIN_IMAGE=PNG_680x125')
+          print('RELEASE_ASSET_SHA256=04DCB2F43360F81A778017BAAC6B349CA89619D3992FE70F706BAFEE390640BB')
