@@ -127,3 +127,75 @@ Validação: **[docs/TESTING.md](docs/TESTING.md)**
 ## Objetivo
 
 Adicionar uma camada simples e reutilizável de hardening ao cliente WYD, dificultando abuso por alteração de IAT, spoofing baseado em APIs de rede e redirecionamento de conexão por proxy injetado.
+
+## Roadmap e contribuições
+
+A versão atual protege especificamente as entradas da IAT relacionadas a `GetAdaptersInfo` e `connect`.
+
+O projeto está aberto a contribuições para ampliar a proteção do cliente.
+
+### Detecção genérica de módulos injetados
+
+Uma evolução importante é detectar DLLs ou módulos injetados mesmo quando eles não alteram `GetAdaptersInfo` ou `connect`.
+
+Essa proteção deve permanecer separada do auditor IAT atual.
+
+### Revalidação após o login
+
+Também pode ser estudada uma nova verificação depois do login para detectar alterações realizadas após a validação inicial.
+
+### Integração com o TMSrv
+
+O cliente pode enviar ao `TMSrv` o resultado da verificação de integridade.
+
+Exemplo:
+
+```text
+CLIENT_INTEGRITY=CLEAN
+CLIENT_INTEGRITY=ANOMALY
+CLIENT_INTEGRITY=RESOLUTION_ERROR
+```
+
+O `TMSrv` pode usar esse resultado para:
+
+- registrar a ocorrência;
+- bloquear o login;
+- colocar a conta em análise;
+- aplicar banimento conforme a política do servidor.
+
+## Política de resposta à detecção
+
+A reação à detecção deve ser configurável pela aplicação.
+
+### Bloqueio com mensagem
+
+O cliente pode informar explicitamente ao usuário:
+
+```text
+Falha na verificacao de integridade do cliente.
+```
+
+### Bloqueio silencioso
+
+Também pode bloquear o login sem revelar que a causa foi uma verificação de integridade, usando uma mensagem genérica ou nenhuma mensagem específica.
+
+### Reportar ao servidor
+
+Outra opção é enviar o resultado ao `TMSrv` e deixar o servidor decidir a ação:
+
+```text
+ALLOW
+BLOCK
+FLAG_FOR_REVIEW
+BAN
+```
+
+## Contribuições
+
+Contribuições são bem-vindas para:
+
+- novas formas de detecção;
+- redução de falsos positivos;
+- revalidação após o login;
+- integração com o `TMSrv`;
+- novas políticas de resposta.
