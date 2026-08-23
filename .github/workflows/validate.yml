@@ -26,6 +26,7 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
+          import subprocess
           import struct
           import xml.etree.ElementTree as ET
 
@@ -37,8 +38,11 @@ jobs:
               'SHA256SUMS',
               'src/P1IatAudit.h',
               'src/P1IatAudit.cpp',
+              'src/P2InlineAudit.h',
+              'src/P2InlineAudit.cpp',
               'docs/IMPLEMENTATION.md',
               'docs/TESTING.md',
+              'docs/PROVENANCE.md',
               'docs/images/integrity-blocked-login.png',
               'examples/TMSelectServerScene_GATE_SNIPPET.cpp',
               'examples/TMProject.vcxproj_SNIPPETS.xml',
@@ -69,20 +73,38 @@ jobs:
           if temporary_names:
               raise SystemExit('TEMPORARY_OR_PLACEHOLDER_FILES=' + ','.join(temporary_names))
 
-          header = (root / 'src/P1IatAudit.h').read_text(encoding='utf-8')
-          cpp = (root / 'src/P1IatAudit.cpp').read_text(encoding='utf-8')
+          p1_header = (root / 'src/P1IatAudit.h').read_text(encoding='utf-8')
+          p1_cpp = (root / 'src/P1IatAudit.cpp').read_text(encoding='utf-8')
+          p2_header = (root / 'src/P2InlineAudit.h').read_text(encoding='utf-8')
+          p2_cpp = (root / 'src/P2InlineAudit.cpp').read_text(encoding='utf-8')
           gate = (root / 'examples/TMSelectServerScene_GATE_SNIPPET.cpp').read_text(encoding='utf-8')
           implementation = (root / 'docs/IMPLEMENTATION.md').read_text(encoding='utf-8')
           testing = (root / 'docs/TESTING.md').read_text(encoding='utf-8')
+          provenance = (root / 'docs/PROVENANCE.md').read_text(encoding='utf-8')
           readme = (root / 'README.md').read_text(encoding='utf-8')
           sums = (root / 'SHA256SUMS').read_text(encoding='utf-8')
+
+          expected_blobs = {
+              'src/P1IatAudit.h': 'a2b9958ccebdc14fc7a6500bdf39a820c8def29a',
+              'src/P1IatAudit.cpp': 'bdd71dcf0578498d623afcb42ed73175c6a814fd',
+              'src/P2InlineAudit.h': '7164919f44b79d19767e7511a54c9c77c1503dea',
+              'src/P2InlineAudit.cpp': '91611a59bba7e14effea47dd2bccd9cd2404e085',
+          }
+          for path, expected in expected_blobs.items():
+              observed = subprocess.check_output(
+                  ['git', 'hash-object', path], text=True
+              ).strip()
+              if observed != expected:
+                  raise SystemExit(
+                      f'SOURCE_PROVENANCE_MISMATCH={path}:{observed}:{expected}'
+                  )
 
           for marker in (
               'enum class Result', 'Clean', 'Anomaly', 'ResolutionError',
               'AuditRecordCount = 2', 'AuditCurrentProcess'
           ):
-              if marker not in header:
-                  raise SystemExit('HEADER_CONTRACT_MISSING=' + marker)
+              if marker not in p1_header:
+                  raise SystemExit('P1_HEADER_CONTRACT_MISSING=' + marker)
 
           for marker in (
               'GetAdaptersInfo', 'connect', 'IPHLPAPI.DLL', 'WSOCK32.dll',
@@ -90,13 +112,34 @@ jobs:
               'UnauthorizedIatTarget', 'LegitimateForwarder',
               'static_assert(sizeof(void*) == sizeof(DWORD)'
           ):
-              if marker not in cpp:
-                  raise SystemExit('CPP_CONTRACT_MISSING=' + marker)
+              if marker not in p1_cpp:
+                  raise SystemExit('P1_CPP_CONTRACT_MISSING=' + marker)
+
+          for marker in (
+              'enum class Result', 'AuditRecordCount = 2',
+              'ComparisonWindowSize = 32', 'MinimumComparedBytes = 16',
+              'EvaluateWindow', 'AuditCurrentProcess'
+          ):
+              if marker not in p2_header:
+                  raise SystemExit('P2_HEADER_CONTRACT_MISSING=' + marker)
+
+          for marker in (
+              'GetAdaptersInfo', 'connect', 'VirtualQuery', 'CreateFileW',
+              'CreateFileMappingW', 'MapViewOfFile',
+              'IMAGE_DIRECTORY_ENTRY_BASERELOC', 'MEM_COMMIT', 'MEM_IMAGE',
+              'EvaluateWindow', 'static_assert(sizeof(void*) == sizeof(DWORD)'
+          ):
+              if marker not in p2_cpp:
+                  raise SystemExit('P2_CPP_CONTRACT_MISSING=' + marker)
 
           for marker in (
               'P1IatAudit::AuditCurrentProcess',
-              'auditCount == P1IatAudit::AuditRecordCount',
+              'P2InlineAudit::AuditCurrentProcess',
+              'p1AuditCount == P1IatAudit::AuditRecordCount',
+              'p2AuditCount == P2InlineAudit::AuditRecordCount',
               'record.result != P1IatAudit::Result::Clean',
+              'record.result != P2InlineAudit::Result::Clean',
+              'clientIntegrityAllowed = p1AllRecordsClean && p2AllRecordsClean',
               'if (!clientIntegrityAllowed)',
               'Falha na verificacao de integridade do cliente.',
               'return 1;'
@@ -104,20 +147,47 @@ jobs:
               if marker not in gate:
                   raise SystemExit('GATE_CONTRACT_MISSING=' + marker)
 
-          if gate.find('P1IatAudit::AuditCurrentProcess') > gate.find('if (!clientIntegrityAllowed)'):
-              raise SystemExit('GATE_ORDER_INVALID=AUDIT_AFTER_DECISION')
+          for forbidden in (
+              'clientIntegrityCheckCompleted',
+              'static bool clientIntegrityAllowed'
+          ):
+              if forbidden in gate:
+                  raise SystemExit('ONE_SHOT_GATE_PRESENT=' + forbidden)
 
-          for marker in ('B_LOGIN_OK', 'ConnectServer', 'P1IatAudit.h'):
+          block_pos = gate.find('if (!clientIntegrityAllowed)')
+          if block_pos < 0:
+              raise SystemExit('GATE_BLOCK_DECISION_MISSING')
+          if gate.find('P1IatAudit::AuditCurrentProcess') > block_pos:
+              raise SystemExit('GATE_ORDER_INVALID=P1_AFTER_DECISION')
+          if gate.find('P2InlineAudit::AuditCurrentProcess') > block_pos:
+              raise SystemExit('GATE_ORDER_INVALID=P2_AFTER_DECISION')
+
+          for marker in (
+              'B_LOGIN_OK', 'ConnectServer', 'P1IatAudit.h', 'P2InlineAudit.h',
+              'cada tentativa de login'
+          ):
               if marker not in implementation:
                   raise SystemExit('IMPLEMENTATION_GUIDE_MISSING=' + marker)
 
-          for marker in ('CLEAN', 'ANOMALY', 'ALLOW', 'BLOCK', 'GetAdaptersInfo', 'connect'):
+          for marker in (
+              'P1', 'P2', 'CLEAN', 'ANOMALY', 'RESOLUTION_ERROR',
+              'GetAdaptersInfo', 'connect', 'PER_LOGIN_REAUDIT'
+          ):
               if marker not in testing:
                   raise SystemExit('TEST_GUIDE_MISSING=' + marker)
+
+          for marker in (
+              'c0814b2f85d2c9cce2cc7a0ff685eebf3857615c',
+              'OFFICIAL_EXORDION_EQUIVALENCE=NOT_CLAIMED',
+              'INLINE_FALLBACK_RUNTIME_EXERCISED=false'
+          ):
+              if marker not in provenance:
+                  raise SystemExit('PROVENANCE_MARKER_MISSING=' + marker)
 
           for link in (
               'docs/IMPLEMENTATION.md',
               'docs/TESTING.md',
+              'docs/PROVENANCE.md',
               'docs/images/integrity-blocked-login.png'
           ):
               if link not in readme or not (root / link).exists():
@@ -129,6 +199,8 @@ jobs:
           ):
               text = (root / xml_path).read_text(encoding='utf-8')
               ET.fromstring('<Root>\n' + text + '\n</Root>')
+              if 'P1IatAudit' not in text or 'P2InlineAudit' not in text:
+                  raise SystemExit('PROJECT_SNIPPET_LAYER_MISSING=' + xml_path)
 
           image = (root / 'docs/images/integrity-blocked-login.png').read_bytes()
           png_magic = b'\x89PNG\r\n\x1a\n'
@@ -138,14 +210,16 @@ jobs:
           if (width, height) != (680, 125):
               raise SystemExit(f'BLOCKED_LOGIN_IMAGE_DIMENSIONS={(width, height)}')
 
-          expected_package = (
+          legacy_package = (
               '04dcdb2f43360f81a778017baac6b349ca89619d3992fe70f706bafee390640bb'
               '  TMProject2Global-IAT-Integration-Package.zip'
           )
-          if expected_package.lower() not in sums.lower():
-              raise SystemExit('SHA256SUMS_RELEASE_ASSET_MISSING_OR_WRONG')
+          if legacy_package.lower() not in sums.lower():
+              raise SystemExit('LEGACY_P1_RELEASE_ASSET_SHA256_MISSING_OR_WRONG')
 
           print('PUBLIC_PACKAGE_VALIDATION=PASS')
-          print('PROTECTED_APIS=GetAdaptersInfo,connect')
-          print('BLOCKED_LOGIN_IMAGE=PNG_680x125')
-          print('RELEASE_ASSET_SHA256=04DCB2F43360F81A778017BAAC6B349CA89619D3992FE70F706BAFEE390640BB')
+          print('LAYERS=P1_IAT,P2_INLINE')
+          print('AUDIT_FREQUENCY=EVERY_LOGIN_ATTEMPT')
+          print('SOURCE_PROVENANCE=VALIDATED_SERVER_MAIN_BLOBS')
+          print('OFFICIAL_EXORDION_EQUIVALENCE=NOT_CLAIMED')
+          print('LEGACY_P1_RELEASE_ASSET_SHA256=04DCB2F43360F81A778017BAAC6B349CA89619D3992FE70F706BAFEE390640BB')
