@@ -1,183 +1,161 @@
 # Implementação
 
-Este guia mostra onde colocar os arquivos e onde inserir o gate no fluxo de login de um cliente WYD Win32.
+Este guia mostra como integrar P1 + P2 no fluxo de login de um cliente WYD Win32/x86.
 
-## 1. Copie os arquivos do auditor
-
-Copie:
+## 1. Copie os arquivos
 
 ```text
 src/P1IatAudit.h
 src/P1IatAudit.cpp
+src/P2InlineAudit.h
+src/P2InlineAudit.cpp
 ```
 
-para o diretório do projeto C++ do cliente, normalmente junto de `TMSelectServerScene.cpp` e do `.vcxproj`.
+Coloque-os junto do projeto C++ do cliente. Os dois `.cpp` usam `pch.h`; preserve o precompiled header do projeto ou ajuste esse include conforme a estrutura local.
 
-Exemplo:
+## 2. Adicione ao `.vcxproj`
 
-```text
-Projects/TMProject/
-├─ P1IatAudit.h
-├─ P1IatAudit.cpp
-├─ TMSelectServerScene.cpp
-└─ TMProject.vcxproj
-```
-
-`P1IatAudit.cpp` usa `pch.h`; mantenha o precompiled header do projeto ou ajuste esse include conforme a estrutura do seu source.
-
-## 2. Adicione os arquivos ao `.vcxproj`
-
-No grupo de headers:
+Headers:
 
 ```xml
 <ClInclude Include="P1IatAudit.h" />
+<ClInclude Include="P2InlineAudit.h" />
 ```
 
-No grupo de fontes:
+Fontes:
 
 ```xml
 <ClCompile Include="P1IatAudit.cpp" />
+<ClCompile Include="P2InlineAudit.cpp" />
 ```
 
-Os snippets prontos estão em:
+Snippets completos:
 
 ```text
 examples/TMProject.vcxproj_SNIPPETS.xml
 examples/TMProject.vcxproj.filters_SNIPPETS.xml
 ```
 
-O `.filters` é opcional e serve apenas para organização no Visual Studio.
+## 3. Inclua os auditores no login
 
-## 3. Inclua o auditor na cena de login
-
-Abra `TMSelectServerScene.cpp` e adicione junto aos includes do projeto:
+Em `TMSelectServerScene.cpp`:
 
 ```cpp
 #include "P1IatAudit.h"
+#include "P2InlineAudit.h"
 ```
 
-## 4. Localize o clique de login
+Localize `case B_LOGIN_OK` e coloque o gate depois do debounce e antes do fluxo normal de login.
 
-Procure o bloco:
-
-```cpp
-switch (idwControlID)
-{
-    case B_LOGIN_OK:
-    {
-```
-
-Normalmente existe um debounce semelhante a:
-
-```cpp
-unsigned int LiveTime = g_pTimerManager->GetServerTime();
-if (LastSendMsgTime + 1500 > LiveTime)
-    return 1;
-```
-
-O gate deve entrar **logo depois desse trecho e antes do restante do login**.
-
-## 5. Insira o gate
-
-Use o arquivo:
+Use:
 
 ```text
 examples/TMSelectServerScene_GATE_SNIPPET.cpp
 ```
 
-O bloco executa `P1IatAudit::AuditCurrentProcess()`, exige todos os registros `CLEAN` e interrompe o login em qualquer outro estado.
+## 4. Regra do gate
 
-Trecho principal:
+Em **cada tentativa de login**:
+
+1. P1 audita as IATs de `GetAdaptersInfo` e `connect`;
+2. P2 audita o código inicial da implementação final autorizada dessas APIs;
+3. a decisão começa negada;
+4. P1 precisa devolver todos os registros esperados como `CLEAN`;
+5. P2 precisa devolver todos os registros esperados como `CLEAN`;
+6. qualquer `ANOMALY`, `RESOLUTION_ERROR` ou quantidade incompleta bloqueia.
+
+Não mantenha cache one-shot como:
 
 ```cpp
-static bool clientIntegrityCheckCompleted = false;
-static bool clientIntegrityAllowed = false;
-
-if (!clientIntegrityCheckCompleted)
-{
-    P1IatAudit::AuditRecord auditRecords[
-        P1IatAudit::AuditRecordCount]{};
-
-    const std::size_t auditCount =
-        P1IatAudit::AuditCurrentProcess(
-            auditRecords,
-            P1IatAudit::AuditRecordCount);
-
-    bool allRecordsClean =
-        auditCount == P1IatAudit::AuditRecordCount;
-
-    for (std::size_t i = 0;
-         i < P1IatAudit::AuditRecordCount;
-         ++i)
-    {
-        if (i >= auditCount ||
-            auditRecords[i].result != P1IatAudit::Result::Clean)
-        {
-            allRecordsClean = false;
-        }
-    }
-
-    clientIntegrityAllowed = allRecordsClean;
-    clientIntegrityCheckCompleted = true;
-}
-
-if (!clientIntegrityAllowed)
-{
-    m_pMessagePanel->SetMessage(
-        "Falha na verificacao de integridade do cliente.",
-        4000);
-    m_pMessagePanel->SetVisible(1, 1);
-    return 1;
-}
+static bool clientIntegrityCheckCompleted;
+static bool clientIntegrityAllowed;
 ```
 
-O exemplo completo inclui também logs por API.
+A decisão deve ser recalculada em todo `B_LOGIN_OK`.
 
-## 6. Confirme a ordem do fluxo
+## 5. O que P1 verifica
 
-O resultado final deve ficar conceitualmente assim:
+P1 confere o destino efetivo da IAT e aceita apenas a implementação autorizada, incluindo forwarders legítimos.
+
+```text
+IAT connect -> WS2_32!connect        = CLEAN
+IAT connect -> destino não autorizado = ANOMALY
+```
+
+## 6. O que P2 verifica
+
+P2 resolve a implementação final autorizada e exige:
+
+```text
+MEM_COMMIT
+MEM_IMAGE
+região executável
+AllocationBase válido
+```
+
+Depois:
+
+1. obtém o caminho da mesma imagem carregada;
+2. abre o PE em modo somente leitura;
+3. calcula o RVA da função;
+4. compara os primeiros 32 bytes live com a imagem limpa;
+5. mascara relocations PE aplicáveis;
+6. exige no mínimo 16 bytes efetivamente comparados.
+
+Resultados:
+
+```text
+bytes equivalentes -> CLEAN
+divergência não mascarada -> ANOMALY
+falha de resolução/inspeção -> RESOLUTION_ERROR
+```
+
+P2 não depende de RVA fixo, endereço fixo, hash fixo de DLL do Windows ou nome de ferramenta externa.
+
+## 7. Ordem obrigatória
 
 ```text
 B_LOGIN_OK
   ↓
 debounce
   ↓
-P1IatAudit::AuditCurrentProcess
+P1
   ↓
-todos CLEAN?
+P2
+  ↓
+todos os registros CLEAN?
   ├─ não -> mensagem + return 1
-  └─ sim -> fluxo normal de login
+  └─ sim -> fluxo normal
               ↓
-         ConnectServer
+         ConnectServer / GetAdaptersInfo
 ```
 
-O `ConnectServer` precisa permanecer **depois** do gate.
+O retorno de bloqueio precisa ocorrer antes das operações protegidas.
 
-## 7. Build
+## 8. Build
 
-A implementação atual é Win32/PE32. Compile o cliente como **Win32/x86**.
-
-Se o projeto usa o nome canônico `WYD.exe`, um exemplo de configuração é:
-
-```xml
-<TargetName>WYD</TargetName>
-```
-
-## 8. Resultado esperado
-
-Cliente normal:
+Target atual:
 
 ```text
-CLIENT_INTEGRITY API=GetAdaptersInfo ... RESULT=CLEAN
-CLIENT_INTEGRITY API=connect ... RESULT=CLEAN
-CLIENT_INTEGRITY ALLOWED=true
+Windows
+Win32 / x86
+C++17
 ```
 
-Alteração detectada:
+Compile com a toolchain do cliente e execute a matriz de [TESTING.md](TESTING.md).
+
+## 9. Logs
+
+Sugestão de formato:
 
 ```text
-CLIENT_INTEGRITY ... RESULT=ANOMALY
-CLIENT_INTEGRITY ALLOWED=false
+CLIENT_INTEGRITY LAYER=P1 API=... RESULT=CLEAN|ANOMALY|RESOLUTION_ERROR
+CLIENT_INTEGRITY LAYER=P2 API=... RESULT=CLEAN|ANOMALY|RESOLUTION_ERROR
+CLIENT_INTEGRITY_ALLOWED=true|false
 ```
 
-Depois de integrar, execute a matriz de **[TESTING.md](TESTING.md)**.
+Não registre IP, proxy, credenciais, MAC ou endereços de memória.
+
+## 10. Limites
+
+P2 cobre apenas a janela inicial configurada. A auditoria ainda é client-side e existe TOCTOU entre a verificação e o uso posterior da API. Mecanismos fora do processo não são cobertos por P1/P2.
