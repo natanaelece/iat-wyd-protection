@@ -3,7 +3,13 @@
 <ClInclude Include="P1IatAudit.h">
   <Filter>Header Files</Filter>
 </ClInclude>
+<ClInclude Include="P2InlineAudit.h">
+  <Filter>Header Files</Filter>
+</ClInclude>
 
 <ClCompile Include="P1IatAudit.cpp">
+  <Filter>Source Files</Filter>
+</ClCompile>
+<ClCompile Include="P2InlineAudit.cpp">
   <Filter>Source Files</Filter>
 </ClCompile>
