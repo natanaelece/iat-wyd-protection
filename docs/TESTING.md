@@ -45,6 +45,10 @@ A máscara sintética comprova a semântica de `EvaluateWindow`; ela não substi
 
 ## 4. Reauditoria por tentativa
 
+```text
+PER_LOGIN_REAUDIT_STATICALLY_REQUIRED=true
+```
+
 A integração deve provar estaticamente que:
 
 ```text
