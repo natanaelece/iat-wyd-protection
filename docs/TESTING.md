@@ -1,20 +1,62 @@
 # Testes
 
-A validação deve provar que cada API protegida consegue bloquear de forma independente.
+A validação deve separar P1 (IAT) de P2 (inline) e provar que o gate permanece fail-closed.
 
-## Matriz mínima
+## 1. Baseline real
 
-| Cenário | GetAdaptersInfo | connect | Resultado |
-|---|---|---|---|
-| Baseline | CLEAN | CLEAN | ALLOW |
-| Adaptador/MAC isolado | ANOMALY | CLEAN | BLOCK |
-| Proxy/conexão isolado | CLEAN | ANOMALY | BLOCK |
-| Ambos alterados | ANOMALY | ANOMALY | BLOCK |
-| Regressão final | CLEAN | CLEAN | ALLOW |
+No mesmo build do cliente:
 
-## Resultado visual esperado para BLOCK
+```text
+P1 GetAdaptersInfo=CLEAN
+P1 connect=CLEAN
+P2 GetAdaptersInfo=CLEAN
+P2 connect=CLEAN
+ALLOWED=true
+```
 
-Em qualquer cenário `BLOCK`, ao clicar em `Login`, a execução deve parar antes de `ConnectServer` e a interface deve exibir:
+O cliente deve continuar normalmente.
+
+## 2. Diferenciais P1
+
+Cada IAT protegida deve conseguir bloquear sozinha:
+
+| P1 GetAdaptersInfo | P1 connect | Esperado |
+|---|---|---|
+| `ANOMALY` | `CLEAN` | `BLOCK` |
+| `CLEAN` | `ANOMALY` | `BLOCK` |
+| `ANOMALY` | `ANOMALY` | `BLOCK` |
+
+O bloqueio deve acontecer antes de `ConnectServer`.
+
+## 3. Harness P2 mínimo
+
+Valide pelo menos:
+
+| Caso | Esperado |
+|---|---|
+| baseline do sistema | `CLEAN` |
+| bytes sintéticos idênticos | `CLEAN` |
+| diferença inline estilo `E9` | `ANOMALY` |
+| diferença não coberta por relocation | `ANOMALY` |
+| diferença coberta por máscara de relocation | `CLEAN` |
+| falha de resolução | `RESOLUTION_ERROR` |
+
+A máscara sintética comprova a semântica de `EvaluateWindow`; ela não substitui uma fixture PE diferencial específica do parser de relocations.
+
+## 4. Reauditoria por tentativa
+
+A integração deve provar estaticamente que:
+
+```text
+P1 e P2 estão dentro de B_LOGIN_OK
+clientIntegrityAllowed é decisão local da tentativa
+clientIntegrityCheckCompleted não existe
+P1/P2 executam antes de ConnectServer e GetAdaptersInfo do login
+```
+
+Um novo processo não é prova dinâmica de segundo clique no mesmo processo.
+
+## 5. Resultado visual para BLOCK
 
 ![Resultado visual esperado após bloqueio](images/integrity-blocked-login.png)
 
@@ -22,56 +64,35 @@ Em qualquer cenário `BLOCK`, ao clicar em `Login`, a execução deve parar ante
 Falha na verificacao de integridade do cliente.
 ```
 
-## 1. Baseline
+## 6. Evidência de laboratório preservada
 
-Compile o cliente sem instrumentação de teste e faça login normalmente.
-
-Esperado:
+No build de laboratório validado contra Medusa WP 1.097:
 
 ```text
-GetAdaptersInfo=CLEAN
-connect=CLEAN
+DIRECT:
+P1 GetAdaptersInfo=CLEAN
+P1 connect=CLEAN
+P2 GetAdaptersInfo=CLEAN
+P2 connect=CLEAN
 ALLOWED=true
-```
 
-## 2. GetAdaptersInfo isolado
-
-Em ambiente de teste autorizado, altere somente a entrada protegida de `GetAdaptersInfo`, mantendo `connect` intacto.
-
-Esperado:
-
-```text
-GetAdaptersInfo=ANOMALY
-connect=CLEAN
+MEDUSA:
+P1 GetAdaptersInfo=ANOMALY
+P1 connect=ANOMALY
+P2 GetAdaptersInfo=CLEAN
+P2 connect=CLEAN
 ALLOWED=false
 ```
 
-O login deve parar antes de `ConnectServer`.
+Esse resultado demonstra que o caminho runtime exercitado foi bloqueado pelo P1. Como P2 permaneceu `CLEAN`, o fallback inline não foi exercitado nessa passagem.
 
-## 3. connect isolado
+## 7. Interpretação correta
 
-Restaure `GetAdaptersInfo` e altere somente `connect`.
+- `P2=CLEAN` com P1 `ANOMALY` não é falha de P2 quando não houve patch inline.
+- `RESOLUTION_ERROR` bloqueia por indisponibilidade da verificação, mas não deve ser rotulado automaticamente como ataque.
+- resultados valem apenas para o cliente/build/teste exatos.
+- não generalize para o binário oficial do Exordion sem comparação explícita.
 
-Esperado:
+## 8. Cleanup
 
-```text
-GetAdaptersInfo=CLEAN
-connect=ANOMALY
-ALLOWED=false
-```
-
-O login deve parar antes de `ConnectServer`.
-
-## 4. Cleanup e regressão
-
-Remova toda instrumentação temporária, recompile e repita o baseline.
-
-Esperado:
-
-```text
-GetAdaptersInfo=CLEAN
-connect=CLEAN
-ALLOWED=true
-```
-
-Esse último teste confirma que a instrumentação usada para validar o bloqueio não permaneceu no cliente final.
+Remova qualquer instrumentação temporária usada para provocar anomalias e repita o baseline limpo antes de considerar o build final aprovado.
