@@ -78,35 +78,19 @@ A decisão deve ser recalculada em todo `B_LOGIN_OK`.
 P1 confere o destino efetivo da IAT e aceita apenas a implementação autorizada, incluindo forwarders legítimos.
 
 ```text
-IAT connect -> WS2_32!connect        = CLEAN
+IAT connect -> WS2_32!connect         = CLEAN
 IAT connect -> destino não autorizado = ANOMALY
 ```
 
 ## 6. O que P2 verifica
 
-P2 resolve a implementação final autorizada e exige:
+P2 resolve a implementação final autorizada, valida a região executável correspondente e compara o código inicial carregado com a mesma imagem PE usada como referência.
+
+A comparação considera relocations aplicáveis e retorna:
 
 ```text
-MEM_COMMIT
-MEM_IMAGE
-região executável
-AllocationBase válido
-```
-
-Depois:
-
-1. obtém o caminho da mesma imagem carregada;
-2. abre o PE em modo somente leitura;
-3. calcula o RVA da função;
-4. compara os primeiros 32 bytes live com a imagem limpa;
-5. mascara relocations PE aplicáveis;
-6. exige no mínimo 16 bytes efetivamente comparados.
-
-Resultados:
-
-```text
-bytes equivalentes -> CLEAN
-divergência não mascarada -> ANOMALY
+código equivalente -> CLEAN
+divergência relevante -> ANOMALY
 falha de resolução/inspeção -> RESOLUTION_ERROR
 ```
 
@@ -156,6 +140,6 @@ CLIENT_INTEGRITY_ALLOWED=true|false
 
 Não registre IP, proxy, credenciais, MAC ou endereços de memória.
 
-## 10. Limites
+## 10. Validação final
 
-P2 cobre apenas a janela inicial configurada. A auditoria ainda é client-side e existe TOCTOU entre a verificação e o uso posterior da API. Mecanismos fora do processo não são cobertos por P1/P2.
+Antes de distribuir o cliente, compile a integração no build exato e execute a matriz de testes documentada em [TESTING.md](TESTING.md).
