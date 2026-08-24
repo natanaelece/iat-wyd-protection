@@ -5,7 +5,7 @@ Proteção client-side em C++ para clientes **WYD Win32/x86** contra adulteraç�
 A versão atual usa duas camadas complementares:
 
 - **P1 — IAT integrity:** detecta quando a entrada da Import Address Table deixa de apontar para a implementação autorizada.
-- **P2 — inline integrity:** resolve a implementação final autorizada e compara os primeiros 32 bytes carregados em memória com a mesma imagem PE em disco, mascarando relocations aplicáveis.
+- **P2 — inline integrity:** valida a integridade do código inicial da implementação final autorizada usando a própria imagem PE correspondente como referência.
 
 P1 e P2 são reavaliados **em toda tentativa de login**. O login só continua quando todos os registros das duas camadas retornam `CLEAN`.
 
@@ -89,7 +89,7 @@ iat-wyd-protection/
 
 Guia: **[docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md)**  
 Testes: **[docs/TESTING.md](docs/TESTING.md)**  
-Proveniência e limites: **[docs/PROVENANCE.md](docs/PROVENANCE.md)**
+Proveniência e validação: **[docs/PROVENANCE.md](docs/PROVENANCE.md)**
 
 ## Evidência de validação
 
@@ -114,15 +114,9 @@ BLOCK=true
 
 O P1 e o P2 são controles complementares: uma alteração exclusivamente na IAT pode ser detectada pelo P1 enquanto o P2 permanece `CLEAN`; uma alteração inline na implementação final pode ser detectada pelo P2 mesmo quando a IAT permanece legítima.
 
-## Limitações
+## Compatibilidade
 
-- target atual: Win32/x86;
-- P2 compara uma janela inicial de 32 bytes e exige pelo menos 16 bytes não mascarados;
-- alteração fora dessa janela pode não ser detectada;
-- há uma janela TOCTOU entre a auditoria e o uso posterior da API;
-- mecanismos out-of-process não são cobertos por P1/P2;
-- verificações executadas dentro do próprio processo não são uma raiz autônoma de confiança;
-- compatibilidade deve ser validada no build exato do cliente que receber a integração.
+A integração deve ser compilada e validada no build exato do cliente em que será utilizada.
 
 ## Release atual
 
