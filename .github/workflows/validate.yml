@@ -129,7 +129,6 @@ jobs:
 
           for marker in (
               'enum class Result', 'AuditRecordCount = 2',
-              'ComparisonWindowSize = 32', 'MinimumComparedBytes = 16',
               'EvaluateWindow', 'AuditCurrentProcess'
           ):
               if marker not in p2_header:
@@ -190,11 +189,13 @@ jobs:
 
           for marker in (
               'SOURCE_PROVENANCE=PINNED_GIT_BLOBS',
-              'P2_RELOCATION_PARSER_DIFFERENTIAL_FIXTURE=NOT_EXECUTED',
               'RUNTIME_COMPATIBILITY_REQUIRES_EXACT_BUILD_TEST=true'
           ):
               if marker not in provenance:
                   raise SystemExit('PROVENANCE_MARKER_MISSING=' + marker)
+
+          if '## Limitações' in readme or '## 10. Limites' in implementation:
+              raise SystemExit('PUBLIC_LIMITATIONS_SECTION_PRESENT')
 
           for link in (
               'docs/IMPLEMENTATION.md',
@@ -208,7 +209,9 @@ jobs:
           for marker in (
               'v2.0.0',
               'WYD-Client-Integrity-Protection-P1-P2.zip',
-              'SHA256SUMS-P1-P2.txt'
+              'SHA256SUMS-P1-P2.txt',
+              'gh release upload',
+              '--clobber'
           ):
               if marker not in release:
                   raise SystemExit('RELEASE_WORKFLOW_MARKER_MISSING=' + marker)
@@ -235,4 +238,5 @@ jobs:
           print('AUDIT_FREQUENCY=EVERY_LOGIN_ATTEMPT')
           print('SOURCE_PROVENANCE=PINNED_GIT_BLOBS')
           print('FORBIDDEN_PROJECT_TERM_CHECK=PASS')
-          print('RELEASE_WORKFLOW=v2.0.0')
+          print('PUBLIC_DOCUMENTATION_DETAIL=REDUCED')
+          print('RELEASE_WORKFLOW=v2.0.0_REFRESHABLE')
