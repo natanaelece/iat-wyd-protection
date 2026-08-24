@@ -24,20 +24,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Stop if release already exists
-        id: existing
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Build release package
-        if: steps.existing.outputs.exists != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -65,25 +52,40 @@ jobs:
           ## P1 + P2 Client Integrity Protection
 
           - P1 valida a integridade das entradas IAT de `GetAdaptersInfo` e `connect`.
-          - P2 valida os primeiros 32 bytes da implementação final autorizada, com tratamento de relocations.
+          - P2 valida a integridade do código inicial da implementação final autorizada.
           - P1 e P2 são executados novamente em cada tentativa de login.
           - `ANOMALY` e `RESOLUTION_ERROR` bloqueiam o login em modo fail-closed.
           - O pacote inclui fontes, snippets de integração, documentação e checksums SHA-256.
-          - Target atual validado: Win32/x86.
 
           Consulte `docs/IMPLEMENTATION.md`, `docs/TESTING.md` e `docs/PROVENANCE.md` antes de integrar em outro build.
           NOTES
 
-      - name: Publish release
-        if: steps.existing.outputs.exists != 'true'
+      - name: Publish or refresh release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release create "$RELEASE_TAG" \
-            --target "$GITHUB_SHA" \
-            --title "v2.0.0 — P1 + P2 Client Integrity Protection" \
-            --notes-file dist/RELEASE-NOTES.md \
-            "dist/$RELEASE_ZIP" \
-            "dist/$RELEASE_SUMS"
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh api --method PATCH \
+              "repos/${GITHUB_REPOSITORY}/git/refs/tags/${RELEASE_TAG}" \
+              -f sha="$GITHUB_SHA" \
+              -F force=true >/dev/null
+
+            gh release edit "$RELEASE_TAG" \
+              --title "v2.0.0 — P1 + P2 Client Integrity Protection" \
+              --notes-file dist/RELEASE-NOTES.md
+
+            gh release upload "$RELEASE_TAG" \
+              "dist/$RELEASE_ZIP" \
+              "dist/$RELEASE_SUMS" \
+              --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              --target "$GITHUB_SHA" \
+              --title "v2.0.0 — P1 + P2 Client Integrity Protection" \
+              --notes-file dist/RELEASE-NOTES.md \
+              "dist/$RELEASE_ZIP" \
+              "dist/$RELEASE_SUMS"
+          fi
