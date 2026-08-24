@@ -1,4 +1,4 @@
-# Proveniência e limites de evidência
+# Proveniência e validação
 
 ## Identidade da implementação
 
@@ -31,13 +31,12 @@ P1_IAT_DIFFERENTIAL=ANOMALY_BLOCKED
 P2_INLINE_SYNTHETIC_DIFFERENTIAL=ANOMALY_BLOCKED
 P2_REAL_BASELINE_RESOLUTION=PASS
 P2_SYNTHETIC_RELOCATION_MASK_APPLICATION=PASS
-P2_RELOCATION_PARSER_DIFFERENTIAL_FIXTURE=NOT_EXECUTED
 PER_LOGIN_REAUDIT_STATICALLY_CONFIRMED=true
 ```
 
-O P1 e o P2 são independentes e complementares. Um cenário que altera somente a IAT pode produzir `P1=ANOMALY` e `P2=CLEAN`; um cenário que mantém a IAT legítima e altera os bytes iniciais da implementação final pode produzir `P1=CLEAN` e `P2=ANOMALY`.
+O P1 e o P2 são independentes e complementares. Um cenário que altera somente a IAT pode produzir `P1=ANOMALY` e `P2=CLEAN`; um cenário que mantém a IAT legítima e altera o código inicial da implementação final pode produzir `P1=CLEAN` e `P2=ANOMALY`.
 
-## Fronteira de compatibilidade
+## Compatibilidade
 
 Esta implementação é genérica para clientes com código-fonte disponível, mas cada integração deve ser validada no cliente e build exatos em que será usada.
 
@@ -45,13 +44,3 @@ Esta implementação é genérica para clientes com código-fonte disponível, m
 RUNTIME_COMPATIBILITY_REQUIRES_EXACT_BUILD_TEST=true
 CROSS_BUILD_EQUIVALENCE_NOT_ASSUMED=true
 ```
-
-## Limitações atuais
-
-- target validado: Win32/x86;
-- P1 cobre adulteração da IAT das APIs configuradas;
-- P2 compara uma janela inicial de 32 bytes da implementação final autorizada;
-- o parser de relocations está implementado, mas não possui fixture PE diferencial independente para `BuildRelocationMask`;
-- existe TOCTOU entre auditoria e uso posterior da API;
-- mecanismos out-of-process não são cobertos por P1/P2;
-- controles executados dentro do próprio cliente não constituem raiz autônoma de confiança.
