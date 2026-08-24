@@ -1,0 +1,89 @@
+name: Publish P1+P2 release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RELEASE_TAG: v2.0.0
+      RELEASE_ZIP: WYD-Client-Integrity-Protection-P1-P2.zip
+      RELEASE_SUMS: SHA256SUMS-P1-P2.txt
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Stop if release already exists
+        id: existing
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build release package
+        if: steps.existing.outputs.exists != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          mkdir -p dist/package
+          cp README.md LICENSE dist/package/
+          cp -R src examples docs dist/package/
+
+          (
+            cd dist/package
+            zip -r "../$RELEASE_ZIP" . >/dev/null
+          )
+
+          (
+            cd dist/package
+            find . -type f -print0 | sort -z | xargs -0 sha256sum
+          ) > "dist/$RELEASE_SUMS"
+
+          (
+            cd dist
+            sha256sum "$RELEASE_ZIP"
+          ) >> "dist/$RELEASE_SUMS"
+
+          cat > dist/RELEASE-NOTES.md <<'NOTES'
+          ## P1 + P2 Client Integrity Protection
+
+          - P1 valida a integridade das entradas IAT de `GetAdaptersInfo` e `connect`.
+          - P2 valida os primeiros 32 bytes da implementação final autorizada, com tratamento de relocations.
+          - P1 e P2 são executados novamente em cada tentativa de login.
+          - `ANOMALY` e `RESOLUTION_ERROR` bloqueiam o login em modo fail-closed.
+          - O pacote inclui fontes, snippets de integração, documentação e checksums SHA-256.
+          - Target atual validado: Win32/x86.
+
+          Consulte `docs/IMPLEMENTATION.md`, `docs/TESTING.md` e `docs/PROVENANCE.md` antes de integrar em outro build.
+          NOTES
+
+      - name: Publish release
+        if: steps.existing.outputs.exists != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" \
+            --target "$GITHUB_SHA" \
+            --title "v2.0.0 — P1 + P2 Client Integrity Protection" \
+            --notes-file dist/RELEASE-NOTES.md \
+            "dist/$RELEASE_ZIP" \
+            "dist/$RELEASE_SUMS"
